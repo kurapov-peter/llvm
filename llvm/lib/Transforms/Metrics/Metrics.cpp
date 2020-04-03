@@ -6,6 +6,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "llvm/Analysis/CallGraph.h"
@@ -15,6 +16,7 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SCCIterator.h"
 
+// TODO: add statistics
 #include "llvm/ADT/Statistic.h"
 
 #include "Metrics.h"
@@ -67,7 +69,7 @@ static const Value *getMemoryInstrPtr(const Instruction *Inst) {
   if (auto SI = dyn_cast<StoreInst>(Inst)) {
     return SI->getPointerOperand();
   }
-  // todo: add atomics
+  // todo: add atomics & calls?
 
   return nullptr;
 }
@@ -82,6 +84,7 @@ bool Metrics::runOnModule(Module &M) {
 
   CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
 
+  // incorrect order now
   for (auto SccIter = scc_begin(&CG), SccIterEnd = scc_end(&CG);
        SccIter != SccIterEnd; ++SccIter) {
     errs() << "SCC " << SCCCount++;
@@ -101,10 +104,35 @@ bool Metrics::runOnModule(Module &M) {
   return false;
 }
 
+// static PrintInstruction(const Instruction &I) {
+//   errs() << "\t\t";
+//   errs().write_escaped(I.getOpcodeName())
+//       << " at addr: " << MemPointer << ", size: ";
+// }
+
+static bool IsMemInstrucion(const Instruction &I) {
+  return (dyn_cast_or_null<LoadInst>(&I) != nullptr) ||
+         (dyn_cast_or_null<StoreInst>(&I) != nullptr);
+}
+
 bool Metrics::runOnFunction(Function &F) {
   LoopInfo *LI = &getAnalysis<LoopInfoWrapperPass>(F).getLoopInfo();
+  
+  // iterate blocks out of any loop
+  for (Function::iterator B = F.begin(), BE = F.end(); B != BE; ++B) {
+    for (LoopInfo::iterator L = LI->begin(), LE = LI->end(); L != LE; ++L) {
+      if ((*L)->contains(&(*B)))
+        break;
+    }
+      for (Instruction &I : *B) {
+        errs() << "\t";
+        errs().write_escaped(I.getOpcodeName()) << "\n"; 
+      }
+  }
 
+  uint LoopCount = 0;
   for (Loop *LInfo : (*LI)) {
+    errs() << "\tLoop " << LoopCount++ << "\n";
     for (auto L = df_begin(LInfo), LE = df_end(LInfo); L != LE; ++L) {
       uint BBNum = 0;
 
@@ -113,17 +141,23 @@ bool Metrics::runOnFunction(Function &F) {
         errs() << "loop depth: " << LI->getLoopDepth(B) << "\n";
 
         for (Instruction &I : *B) {
-          if (auto LdInst = dyn_cast<LoadInst>(&I)) {
-            auto MemPointer = getMemoryInstrPtr(&I);
+          if (IsMemInstrucion(I)) {
+            auto MemPtr = getMemoryInstrPtr(&I);
+            uint64_t AccessSize = 0;
+
+            if (auto LdInst = dyn_cast<LoadInst>(&I)) {
+              auto PtrType = LdInst->getPointerOperandType();
+              AccessSize = DL->getPointerTypeSize(PtrType);
+            }
+            if (auto StInst = dyn_cast<StoreInst>(&I)) {
+              auto PtrType = StInst->getPointerOperandType();
+              AccessSize = DL->getPointerTypeSize(PtrType);
+            }
 
             errs() << "\t\t";
             errs().write_escaped(I.getOpcodeName())
-                << " at addr: " << MemPointer << ", size: ";
-
-            auto PointerType = LdInst->getPointerOperandType();
-            uint64_t LoadSize = DL->getPointerTypeSize(PointerType);
-
-            errs() << LoadSize << "\n";
+                << " at addr: " << MemPtr << ", size: ";
+            errs() << AccessSize << "\n";
           }
         }
       }
