@@ -23,18 +23,12 @@
 
 #include "Metrics.h"
 #include "MetricsAnalysis.h"
+#include "FeatureGraph.h"
 
-#include <set>
 
 using namespace llvm;
 
 namespace {
-class MNode;
-class MEdge;
-using MNodeBase = DGNode<MNode, MEdge>;
-using MEdgeBase = DGEdge<MNode, MEdge>;
-using MDGBase = DirectedGraph<MNode, MEdge>;
-
 const Value *getMemoryInstrPtr(const Instruction *Inst) {
   if (auto LI = dyn_cast<LoadInst>(Inst)) {
     return LI->getPointerOperand();
@@ -52,109 +46,6 @@ bool IsMemInstruction(const Instruction &I) {
          (dyn_cast_or_null<StoreInst>(&I) != nullptr);
 }
 
-struct NodeFeatures {
-  unsigned MemOps = 0;
-  unsigned TotalMemAccessInBytes = 0;
-  unsigned ExecutionIntensity = 0;
-} DummyNodeFeatures;
-
-class MNode : public MNodeBase {
-public:
-  enum class NodeKind {
-    Root,
-    Feature,
-    FunctionRoot
-  };
-
-  MNode() = delete;
-  MNode(const NodeFeatures &F) : MNodeBase(), Features(F) {}
-  MNode(const MNode &N) : MNodeBase(N), Features(N.Features), Kind(N.Kind) {}
-  MNode(MNode &&N) : MNodeBase(std::move(N)), Features(N.Features), Kind(N.Kind) {}
-
-  //MNode& operator=(const MNode& Other);
-  virtual ~MNode() {};
-
-  NodeKind GetKind() const { return Kind; }
-  void SetKind(NodeKind K) { Kind = K; }
-
-private:
-// move features to derived?
-  NodeFeatures Features;
-  NodeKind Kind;
-};
-
-class RootMNode : public MNode {
-public:
-  RootMNode() : MNode(DummyNodeFeatures) { SetKind(NodeKind::Root); };
-  ~RootMNode() {};
-
-  static bool classof(const MNode *N) {
-    return N->GetKind() == NodeKind::Root;
-  }
-  static bool classof(const RootMNode *N) { return true; }
-};
-
-class FeatureMNode : public MNode {
-public:
-  FeatureMNode(NodeFeatures &F) : MNode(F) { SetKind(NodeKind::Feature); };
-  ~FeatureMNode() {};
-
-  static bool classof(const MNode *N) {
-    return N->GetKind() == NodeKind::Feature;
-  }
-  static bool classof(const FeatureMNode *N) { return true; }
-};
-
-class FunctionMNode : public MNode {
-public:
-  FunctionMNode() : MNode(DummyNodeFeatures) { SetKind(NodeKind::FunctionRoot); };
-  ~FunctionMNode() {};
-
-  static bool classof(const MNode *N) {
-    return N->GetKind() == NodeKind::FunctionRoot;
-  }
-  static bool classof(const FunctionMNode *N) { return true; }
-};
-
-class MEdge : public MEdgeBase {
-public:
-  MEdge() = delete;
-  MEdge(const MEdge &E) : MEdgeBase(E) {}
-  MEdge(MEdge &&E) : MEdgeBase(E) {}
-  virtual ~MEdge() = 0;
-};
-
-class FDGraph {
-public:
-  FDGraph() {
-    auto *N = new RootMNode();
-    G.addNode(*N);
-    Current = Root = N;
-  }
-  ~FDGraph() {
-    for (auto &N: G) {
-      delete N;
-    }
-  }
-
-  void SetCurrent(MNode *N) { Current = N; }
-  MNode *GetCurrent() const { return Current; }
-  MNode *GetRoot() const { return Root; }
-
-  void addNode(MNode *N) {
-    G.addNode(*N);
-  }
-
-  void dump() {
-    for (auto &N: G) {
-      // todo
-    }
-  }
-private:
-  MDGBase G;
-  RootMNode *Root;
-  MNode *Current;
-};
 
 struct Metrics : public ModulePass {
   static char ID;
@@ -210,7 +101,7 @@ bool Metrics::runOnFunction(Function &F) {
       if ((*L)->contains(&(*B)))
         break;
     }
-    // TODO: put BB into features graph
+
     NodeFeatures NF;
     for (Instruction &I : *B) {
       if (IsMemInstruction(I)) {
@@ -256,7 +147,6 @@ bool Metrics::doInitialization(Module &M) {
 bool Metrics::runOnModule(Module &M) {
   //Ctx = (&M)->getContext();
   errs() << "Metrics pass:" << SCCCount << " \n";
-
   CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   
   // incorrect order now
@@ -270,9 +160,12 @@ bool Metrics::runOnModule(Module &M) {
         errs().write_escaped((F->getName().str())) << "\n";
 
         if (!F->isDeclaration()) {
-          auto *N = new FunctionMNode();
+          // top level functions, connect to root
+          auto *N = new FunctionMNode(F->getName().str());
           FeatureGraph.addNode(N);
-          //FeatureGraph.
+          FeatureGraph.SetCurrent(N);
+          auto *E = new ControlEdge(*N);
+          FeatureGraph.connect(*(FeatureGraph.GetRoot()), *N, *E);
           runOnFunction(*F);
         }
       }
