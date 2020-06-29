@@ -122,6 +122,7 @@ set(SYCL_SOURCES
     "detail/program_impl.cpp"
     "detail/program_manager/program_manager.cpp"
     "detail/queue_impl.cpp"
+    "detail/multi_queue_impl.cpp"
     "detail/os_util.cpp"
     "detail/platform_util.cpp"
     "detail/sampler_impl.cpp"

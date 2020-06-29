@@ -1,34 +1,19 @@
 #include <CL/sycl/multi_queue.hpp>
-#include <CL/sycl/queue.hpp>
-#include <CL/sycl/platform.hpp>
+#include <detail/multi_queue_impl.hpp>
 
-#include <string>
-#include <iostream>
-#include <algorithm>
 
 __SYCL_INLINE_NAMESPACE(cl) {
 namespace sycl {
 
-// FIXME
-queue *multi_queue::choose_cpu() {
-  std::cerr << "Running with cpu:" << std::endl;
-  return &qs[0];
+multi_queue::multi_queue(const async_handler &AsyncHandler, const property_list &PropList) {
+  impl = std::make_shared<detail::multi_queue_impl>(AsyncHandler, PropList);
 }
 
-// FIXME
-queue *multi_queue::choose_gpu() {
-  std::cerr << "Running with gpu:" << std::endl;
-  return &qs[1];
+event multi_queue::submit_impl(function_class<void(handler &)> CGH,
+                               const detail::code_location &CodeLoc) {
+  return impl->submit(CGH, impl, CodeLoc);
 }
 
-void multi_queue::init_all_platforms(const property_list& PropList) {
-  for (const auto &_platform : platform::get_platforms()) {
-    for (const auto &_device : _platform.get_devices()) {
-      auto _queue = queue(_device);
-      qs.push_back(_queue);
-    }
-  }
-}
 
 } // namespace sycl
 } // __SYCL_INLINE_NAMESPACE(cl)
