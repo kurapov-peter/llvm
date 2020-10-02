@@ -33,6 +33,7 @@ def do_compile(args):
         "--",
         "deploy-sycl-toolchain",
         "deploy-opencl-aot",
+        "CalciteIRTranslator",
         "-j", str(cpu_count)]
 
     print("[Cmake Command]: {}".format(" ".join(cmake_cmd)))
