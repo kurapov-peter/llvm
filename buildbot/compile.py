@@ -34,6 +34,9 @@ def do_compile(args):
         "deploy-sycl-toolchain",
         "deploy-opencl-aot",
         "llvm-as",
+        "llvm-dis",
+        "llvm-link",
+        "opt",
         "CalciteIRTranslator",
         "-j", str(cpu_count)]
 
